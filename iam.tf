@@ -34,10 +34,49 @@ resource "aws_iam_policy" "ssm_parameters" {
 }
 
 ################################################################################
+# Public Dashboard Elastic IP Association
+################################################################################
+
+data "aws_iam_policy_document" "public_dashboard_eip" {
+  count = var.public_dashboard_enabled ? 1 : 0
+
+  statement {
+    sid       = "VerifyDeploymentElasticIp"
+    actions   = ["ec2:DescribeAddresses"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid     = "AssociateDeploymentElasticIp"
+    actions = ["ec2:AssociateAddress"]
+    resources = [
+      aws_eip.public_dashboard[0].arn,
+      "arn:aws:ec2:${local.region}:${data.aws_caller_identity.current.account_id}:instance/*",
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/HermesDeployment"
+      values   = [var.name]
+    }
+  }
+}
+
+resource "aws_iam_policy" "public_dashboard_eip" {
+  count = var.public_dashboard_enabled ? 1 : 0
+
+  name   = "${var.name}-public-dashboard-eip"
+  policy = data.aws_iam_policy_document.public_dashboard_eip[0].json
+  tags   = local.common_tags
+}
+
+################################################################################
 # Bedrock Model Invocation
 ################################################################################
 
 data "aws_iam_policy_document" "bedrock" {
+  count = var.model_provider == "bedrock" ? 1 : 0
+
   statement {
     sid = "InvokeConfiguredModel"
     actions = [
@@ -70,8 +109,10 @@ data "aws_iam_policy_document" "bedrock" {
 }
 
 resource "aws_iam_policy" "bedrock" {
+  count = var.model_provider == "bedrock" ? 1 : 0
+
   name   = "${var.name}-bedrock"
-  policy = data.aws_iam_policy_document.bedrock.json
+  policy = data.aws_iam_policy_document.bedrock[0].json
   tags   = local.common_tags
 }
 
@@ -147,11 +188,18 @@ module "instance_role" {
 
   create_instance_profile = true
 
-  policies = {
-    ssm_core        = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-    ssm_parameters  = aws_iam_policy.ssm_parameters.arn
-    bedrock         = aws_iam_policy.bedrock.arn
-    ebs             = aws_iam_policy.ebs.arn
-    cloudwatch_logs = aws_iam_policy.cloudwatch_logs.arn
-  }
+  policies = merge(
+    {
+      ssm_core        = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      ssm_parameters  = aws_iam_policy.ssm_parameters.arn
+      ebs             = aws_iam_policy.ebs.arn
+      cloudwatch_logs = aws_iam_policy.cloudwatch_logs.arn
+    },
+    var.model_provider == "bedrock" ? {
+      bedrock = aws_iam_policy.bedrock[0].arn
+    } : {},
+    var.public_dashboard_enabled ? {
+      public_dashboard_eip = aws_iam_policy.public_dashboard_eip[0].arn
+    } : {},
+  )
 }

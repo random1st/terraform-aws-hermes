@@ -26,7 +26,7 @@ data "aws_subnets" "default" {
 }
 
 data "aws_subnet" "selected" {
-  id = coalesce(var.subnet_id, sort(data.aws_subnets.default[0].ids)[0])
+  id = var.subnet_id != null ? var.subnet_id : sort(data.aws_subnets.default[0].ids)[0]
 }
 
 ################################################################################
@@ -49,17 +49,22 @@ data "cloudinit_config" "this" {
     content_type = "text/x-shellscript"
     filename     = "bootstrap.sh"
     content = templatefile("${path.module}/templates/user_data.sh.tpl", {
-      region                 = data.aws_region.current.id
-      az                     = local.az
-      data_path              = var.data_path
-      compose_dir            = local.compose_dir
-      hermes_image           = local.hermes_image
-      hermes_config          = local.hermes_config
-      hermes_compose         = local.hermes_compose
-      hermes_start_script    = local.hermes_start_script
-      hermes_service         = local.hermes_service
-      hermes_diagnose_script = local.hermes_diagnose_script
-      volume_tag_name        = var.name
+      region                              = data.aws_region.current.region
+      az                                  = local.az
+      data_path                           = var.data_path
+      compose_dir                         = local.compose_dir
+      hermes_image                        = local.hermes_image
+      hermes_config                       = local.hermes_config
+      hermes_compose                      = local.hermes_compose
+      hermes_start_script                 = local.hermes_start_script
+      hermes_service                      = local.hermes_service
+      hermes_diagnose_script              = local.hermes_diagnose_script
+      public_dashboard_enabled            = var.public_dashboard_enabled
+      public_dashboard_basic_auth_enabled = var.public_dashboard_enabled && local.public_dashboard_auth_mode == "basic"
+      public_dashboard_eip_allocation_id  = var.public_dashboard_enabled ? aws_eip.public_dashboard[0].allocation_id : ""
+      hermes_caddyfile                    = local.hermes_caddyfile
+      hermes_dashboard_dockerfile         = local.hermes_dashboard_dockerfile
+      volume_tag_name                     = var.name
     })
   }
 }

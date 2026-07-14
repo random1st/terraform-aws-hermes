@@ -23,6 +23,47 @@ INSTANCE_ID=$(curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" \
   http://169.254.169.254/latest/meta-data/instance-id)
 echo "Instance ID: $INSTANCE_ID"
 
+%{ if public_dashboard_enabled ~}
+echo "Associating the stable public dashboard Elastic IP..."
+associate_dashboard_eip() {
+  # A successful association replaces the launch-time public IP and can sever
+  # this command's own response. Verification below is the source of truth.
+  aws ec2 associate-address \
+    --region "${region}" \
+    --allocation-id "${public_dashboard_eip_allocation_id}" \
+    --instance-id "$INSTANCE_ID" \
+    --allow-reassociation \
+    >/dev/null 2>&1 || true
+}
+
+associate_dashboard_eip
+EIP_ASSOCIATED=false
+for attempt in $(seq 1 30); do
+  ASSOCIATED_INSTANCE=$(aws ec2 describe-addresses \
+    --region "${region}" \
+    --allocation-ids "${public_dashboard_eip_allocation_id}" \
+    --query 'Addresses[0].InstanceId' \
+    --output text 2>/dev/null || true)
+
+  if [[ "$ASSOCIATED_INSTANCE" == "$INSTANCE_ID" ]]; then
+    EIP_ASSOCIATED=true
+    break
+  fi
+
+  # Retry once after allowing the network and IAM credentials to settle.
+  if [[ "$attempt" -eq 10 ]]; then
+    associate_dashboard_eip
+  fi
+  sleep 3
+done
+
+if [[ "$EIP_ASSOCIATED" != "true" ]]; then
+  echo "FATAL: stable dashboard Elastic IP was not associated with this instance after verification retries"
+  exit 1
+fi
+echo "Stable public dashboard Elastic IP association verified"
+%{ endif ~}
+
 echo "Installing Docker..."
 # AL2023 default repos ship docker but not docker-compose-plugin; install Compose v2 CLI plugin manually (pinned).
 dnf install -y docker xfsprogs
@@ -64,6 +105,21 @@ mkdir -p "${compose_dir}"
 cat > "${compose_dir}/docker-compose.yml" <<'COMPOSEEOF'
 ${hermes_compose}
 COMPOSEEOF
+
+%{ if public_dashboard_enabled ~}
+cat > "${compose_dir}/Caddyfile" <<'CADDYEOF'
+${hermes_caddyfile}
+CADDYEOF
+chmod 644 "${compose_dir}/Caddyfile"
+
+%{ if public_dashboard_basic_auth_enabled ~}
+mkdir -p "${compose_dir}/dashboard-image"
+cat > "${compose_dir}/dashboard-image/Dockerfile" <<'DOCKERFILEEOF'
+${hermes_dashboard_dockerfile}
+DOCKERFILEEOF
+chmod 644 "${compose_dir}/dashboard-image/Dockerfile"
+%{ endif ~}
+%{ endif ~}
 
 echo -n "${hermes_image}" > "${compose_dir}/.image"
 
@@ -243,8 +299,23 @@ if [[ ! "$HERMES_UID" =~ ^[0-9]+$ || ! "$HERMES_GID" =~ ^[0-9]+$ ]]; then
   HERMES_UID=10000
   HERMES_GID=10000
 fi
+export HERMES_UID HERMES_GID
+
+%{ if public_dashboard_basic_auth_enabled ~}
+echo "Building the dashboard-only Hermes image with the password-provider auto-SSO guard..."
+docker compose -f "${compose_dir}/docker-compose.yml" build --pull hermes-dashboard
+%{ endif ~}
+
 chown -R "$HERMES_UID:$HERMES_GID" "${data_path}"
 ebs_log "Volume mounted and ownership set to container user $HERMES_UID:$HERMES_GID"
+
+%{ if public_dashboard_enabled ~}
+# Caddy is a dedicated unprivileged container user; only its state directories
+# are writable by that UID. The Caddy image carries the low-port capability.
+mkdir -p "${data_path}/caddy/data" "${data_path}/caddy/config"
+chown -R 1000:1000 "${data_path}/caddy"
+chmod 750 "${data_path}/caddy" "${data_path}/caddy/data" "${data_path}/caddy/config"
+%{ endif ~}
 
 systemctl daemon-reload
 systemctl enable hermes.service

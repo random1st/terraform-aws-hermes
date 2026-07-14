@@ -92,3 +92,43 @@ output "launch_template_id" {
   description = "ID of the launch template."
   value       = aws_launch_template.this.id
 }
+
+output "deployment_name" {
+  description = "Hermes deployment name used in resource names and discovery tags."
+  value       = var.name
+}
+
+output "public_dashboard_url" {
+  description = "HTTPS URL for the public dashboard. Null when public_dashboard_enabled is false."
+  value       = var.public_dashboard_enabled ? "https://${local.public_dashboard_domain}" : null
+}
+
+output "public_dashboard_auth_mode" {
+  description = "Selected public dashboard authentication mode. Null when public_dashboard_enabled is false."
+  value       = var.public_dashboard_enabled ? local.public_dashboard_auth_mode : null
+}
+
+output "public_dashboard_domain" {
+  description = "Normalized public dashboard domain. Null when public_dashboard_enabled is false."
+  value       = var.public_dashboard_enabled ? local.public_dashboard_domain : null
+}
+
+output "public_dashboard_ipv4_address" {
+  description = "Stable public dashboard Elastic IP address. Null when public_dashboard_enabled is false."
+  value       = var.public_dashboard_enabled ? aws_eip.public_dashboard[0].public_ip : null
+}
+
+output "public_dashboard_basic_auth_username" {
+  description = "Username for the built-in Hermes dashboard Basic Auth gate. Null when the public dashboard is disabled or uses OIDC."
+  value       = var.public_dashboard_enabled && local.public_dashboard_auth_mode == "basic" ? var.public_dashboard_basic_auth_username : null
+}
+
+output "public_dashboard_hermes_hash_ssm_parameter_name" {
+  description = "SSM parameter name for the Hermes scrypt hash. Null when the public dashboard is disabled or uses OIDC."
+  value       = var.public_dashboard_enabled && local.public_dashboard_auth_mode == "basic" ? aws_ssm_parameter.dashboard_hermes_hash[0].name : null
+}
+
+output "public_dashboard_session_secret_ssm_parameter_name" {
+  description = "SSM parameter name for the Hermes dashboard session secret. Null when the public dashboard is disabled or uses OIDC."
+  value       = var.public_dashboard_enabled && local.public_dashboard_auth_mode == "basic" ? aws_ssm_parameter.dashboard_session_secret[0].name : null
+}

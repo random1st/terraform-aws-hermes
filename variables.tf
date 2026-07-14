@@ -45,6 +45,113 @@ variable "subnet_id" {
   default     = null
 }
 
+variable "public_dashboard_enabled" {
+  description = "Expose the dashboard through a stable Elastic IP, Route53, Caddy automatic HTTPS, and the selected Hermes auth gate (Basic Auth by default, optional OIDC). Keeps the upstream no-ingress posture when false."
+  type        = bool
+  default     = false
+}
+
+variable "public_dashboard_auth_mode" {
+  description = "Authentication mode for a public dashboard. basic uses the built-in Hermes password gate; oidc uses the bundled self-hosted OIDC provider with a public PKCE client."
+  type        = string
+  default     = "basic"
+
+  validation {
+    condition     = contains(["basic", "oidc"], lower(trimspace(var.public_dashboard_auth_mode)))
+    error_message = "public_dashboard_auth_mode must be either \"basic\" or \"oidc\"."
+  }
+
+  validation {
+    condition     = lower(trimspace(var.public_dashboard_auth_mode)) != "oidc" || var.public_dashboard_enabled
+    error_message = "public_dashboard_auth_mode = \"oidc\" requires public_dashboard_enabled = true."
+  }
+}
+
+variable "public_dashboard_domain" {
+  description = "Public DNS name for the dashboard (for example, hm.example.com). Required when public_dashboard_enabled is true."
+  type        = string
+  default     = ""
+
+  validation {
+    condition = !var.public_dashboard_enabled || can(regex(
+      "^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z]{2,63}\\.?$",
+      trimspace(var.public_dashboard_domain),
+    ))
+    error_message = "public_dashboard_domain must be a valid fully-qualified DNS name when public_dashboard_enabled is true."
+  }
+}
+
+variable "public_dashboard_route53_zone_id" {
+  description = "Route53 public hosted zone ID that owns public_dashboard_domain. Required when public_dashboard_enabled is true."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = !var.public_dashboard_enabled || can(regex("^Z[A-Z0-9]+$", trimspace(var.public_dashboard_route53_zone_id)))
+    error_message = "public_dashboard_route53_zone_id must be a Route53 hosted zone ID when public_dashboard_enabled is true."
+  }
+}
+
+variable "public_dashboard_basic_auth_username" {
+  description = "Username for the built-in Hermes dashboard Basic Auth gate."
+  type        = string
+  default     = "hermes"
+
+  validation {
+    condition     = !var.public_dashboard_enabled || lower(trimspace(var.public_dashboard_auth_mode)) != "basic" || can(regex("^[A-Za-z0-9._@-]{1,64}$", var.public_dashboard_basic_auth_username))
+    error_message = "public_dashboard_basic_auth_username must be 1-64 characters using only letters, digits, dot, underscore, at, or hyphen."
+  }
+}
+
+variable "public_dashboard_oidc_issuer" {
+  description = "OIDC issuer URL for the public dashboard. Required in oidc mode; must be HTTPS and must not contain a query or fragment."
+  type        = string
+  default     = ""
+
+  validation {
+    condition = lower(trimspace(var.public_dashboard_auth_mode)) != "oidc" || can(regex(
+      "^https://[^/?#[:space:]]+(/[^?#[:space:]]*)?$",
+      trimspace(var.public_dashboard_oidc_issuer),
+    ))
+    error_message = "public_dashboard_oidc_issuer must be a valid HTTPS issuer URL without a query or fragment when oidc mode is enabled."
+  }
+}
+
+variable "public_dashboard_oidc_client_id" {
+  description = "Public PKCE OIDC client ID registered for the dashboard. Required in oidc mode."
+  type        = string
+  default     = ""
+
+  validation {
+    condition = lower(trimspace(var.public_dashboard_auth_mode)) != "oidc" || (
+      length(trimspace(var.public_dashboard_oidc_client_id)) >= 1 &&
+      length(trimspace(var.public_dashboard_oidc_client_id)) <= 512 &&
+      !can(regex("[[:space:]]", var.public_dashboard_oidc_client_id))
+    )
+    error_message = "public_dashboard_oidc_client_id must be 1-512 non-whitespace characters when oidc mode is enabled."
+  }
+}
+
+variable "public_dashboard_oidc_scopes" {
+  description = "OIDC scopes requested by the dashboard public PKCE client. Must include openid."
+  type        = list(string)
+  default     = ["openid", "profile", "email"]
+
+  validation {
+    condition = lower(trimspace(var.public_dashboard_auth_mode)) != "oidc" || (
+      contains(var.public_dashboard_oidc_scopes, "openid") &&
+      length(var.public_dashboard_oidc_scopes) <= 32 &&
+      alltrue([
+        for scope in var.public_dashboard_oidc_scopes :
+        length(trimspace(scope)) >= 1 &&
+        length(scope) <= 256 &&
+        !can(regex("[[:space:]]", scope))
+      ])
+    )
+    error_message = "public_dashboard_oidc_scopes must contain openid and only non-empty, whitespace-free scope values."
+  }
+}
+
 ################################################################################
 # Storage
 ################################################################################
@@ -86,6 +193,32 @@ variable "hermes_version" {
 }
 
 ################################################################################
+# Model Provider
+################################################################################
+
+variable "model_provider" {
+  description = "Hermes model provider. Use bedrock for IAM-backed AWS inference or openai-codex for ChatGPT subscription OAuth stored in the persistent Hermes auth store."
+  type        = string
+  default     = "bedrock"
+
+  validation {
+    condition     = contains(["bedrock", "openai-codex"], var.model_provider)
+    error_message = "model_provider must be either \"bedrock\" or \"openai-codex\"."
+  }
+}
+
+variable "openai_codex_model_id" {
+  description = "Default OpenAI Codex model ID when model_provider is openai-codex."
+  type        = string
+  default     = "gpt-5.5"
+
+  validation {
+    condition     = var.model_provider != "openai-codex" || length(trimspace(var.openai_codex_model_id)) > 0
+    error_message = "openai_codex_model_id must be non-empty when model_provider is \"openai-codex\"."
+  }
+}
+
+################################################################################
 # Bedrock
 ################################################################################
 
@@ -121,8 +254,8 @@ variable "slack_enabled" {
   default     = true
 
   validation {
-    condition     = var.slack_enabled || var.email_enabled
-    error_message = "At least one messaging channel must be enabled: set slack_enabled or email_enabled to true."
+    condition     = var.slack_enabled || var.email_enabled || var.public_dashboard_enabled
+    error_message = "At least one interaction surface must be enabled: Slack, email, or the public dashboard."
   }
 }
 

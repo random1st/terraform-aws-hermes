@@ -49,7 +49,14 @@ services:
         awslogs-stream: hermes-gateway
 
   hermes-dashboard:
-    image: ${image}
+    image: %{ if public_dashboard_enabled && public_dashboard_auth_mode == "basic" }${dashboard_image}%{ else }${image}%{ endif }
+%{ if public_dashboard_enabled && public_dashboard_auth_mode == "basic" ~}
+    build:
+      context: ${dashboard_build_context}
+      dockerfile: Dockerfile
+      args:
+        HERMES_BASE_IMAGE: ${image}
+%{ endif ~}
     container_name: hermes-dashboard
     network_mode: host
     restart: unless-stopped
@@ -59,10 +66,49 @@ services:
     environment:
       HERMES_HOME: /opt/data
       AWS_REGION: ${region}
-    command: ["dashboard", "--host", "127.0.0.1", "--no-open"]
+%{ if public_dashboard_enabled ~}
+%{ if public_dashboard_auth_mode == "basic" ~}
+      HERMES_DASHBOARD_BASIC_AUTH_USERNAME: "$${PUBLIC_DASHBOARD_USERNAME}"
+      HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH: "$${PUBLIC_DASHBOARD_HERMES_PASSWORD_HASH}"
+      HERMES_DASHBOARD_BASIC_AUTH_SECRET: "$${PUBLIC_DASHBOARD_SESSION_SECRET}"
+%{ else ~}
+      HERMES_DASHBOARD_OIDC_ISSUER: ${jsonencode(public_dashboard_oidc_issuer)}
+      HERMES_DASHBOARD_OIDC_CLIENT_ID: ${jsonencode(public_dashboard_oidc_client_id)}
+      HERMES_DASHBOARD_OIDC_SCOPES: ${jsonencode(join(" ", public_dashboard_oidc_scopes))}
+%{ endif ~}
+      HERMES_DASHBOARD_PUBLIC_URL: "https://${public_dashboard_domain}"
+%{ endif ~}
+    command: ["dashboard", "--host", "%{ if public_dashboard_enabled }0.0.0.0%{ else }127.0.0.1%{ endif }", "--no-open"]
     logging:
       driver: awslogs
       options:
         awslogs-region: ${region}
         awslogs-group: ${log_group_name}
         awslogs-stream: hermes-dashboard
+
+%{ if public_dashboard_enabled ~}
+  caddy:
+    image: ${caddy_image}
+    container_name: hermes-caddy
+    network_mode: host
+    restart: unless-stopped
+    user: "1000:1000"
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - hermes-dashboard
+    volumes:
+      - ${compose_dir}/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${data_path}/caddy/data:/data
+      - ${data_path}/caddy/config:/config
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${region}
+        awslogs-group: ${log_group_name}
+        awslogs-stream: hermes-caddy
+%{ endif ~}

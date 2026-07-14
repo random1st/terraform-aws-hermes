@@ -1,0 +1,90 @@
+# Copy to terraform.tfvars and adjust non-secret deployment settings only.
+# Slack/email/API credentials and SOUL.md are populated through SSM after apply;
+# never put their values in this file.
+
+################################################################################
+# General / compute / network
+################################################################################
+
+name              = "hermes"
+instance_type     = "t4g.medium"
+root_volume_size  = 16
+subnet_id          = null # null = deterministic default-VPC subnet discovery
+
+tags = {
+  Environment = "dev"
+}
+
+################################################################################
+# Public dashboard
+################################################################################
+
+public_dashboard_enabled         = false
+public_dashboard_domain          = "" # e.g. hm.example.com when enabled
+public_dashboard_route53_zone_id = "" # e.g. Z0123456789ABCDEF when enabled
+
+# "basic" (default) or "oidc". The modes are mutually exclusive.
+public_dashboard_auth_mode = "basic"
+
+# Used only in basic mode. Run scripts/bootstrap-public-dashboard-auth.sh
+# after apply; do not put the generated password or hashes in tfvars.
+public_dashboard_basic_auth_username = "hermes"
+
+# Used only in oidc mode. Register a public PKCE client in the IdP with:
+#   https://<public_dashboard_domain>/auth/callback
+# Restrict access by assigning the IdP application to the intended group/users.
+public_dashboard_oidc_issuer    = "" # e.g. https://auth.example.com/application/o/hermes/
+public_dashboard_oidc_client_id = ""
+public_dashboard_oidc_scopes    = ["openid", "profile", "email"]
+
+################################################################################
+# Storage / Hermes image
+################################################################################
+
+data_volume_size = 20
+data_path        = "/var/lib/hermes"
+hermes_version   = "v2026.7.7.2" # exact published tag; never use latest
+
+################################################################################
+# Model provider
+################################################################################
+
+model_provider         = "bedrock" # "bedrock" or "openai-codex"
+openai_codex_model_id = "gpt-5.5"
+
+bedrock_region            = "us-east-1"
+bedrock_model_id          = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+bedrock_discovery_enabled = true
+
+################################################################################
+# Slack Socket Mode
+################################################################################
+
+slack_enabled       = true
+slack_home_channel  = "" # optional channel ID for cron delivery
+slack_allowed_users = [] # empty = allow the whole connected workspace
+
+################################################################################
+# Email (IMAP/SMTP)
+################################################################################
+
+email_enabled          = false
+email_address          = ""
+email_imap_host        = ""
+email_smtp_host        = ""
+email_imap_port        = 993
+email_smtp_port        = 587
+email_poll_interval    = 15
+email_allowed_users    = []
+email_home_address     = ""
+email_allow_all_users  = false
+email_skip_attachments = false
+
+################################################################################
+# API / SSM / logging / lifecycle
+################################################################################
+
+api_server_enabled   = false
+ssm_parameter_prefix = "/hermes"
+log_retention_days   = 30
+instance_refresh_cron = "0 1 ? * SUN *"

@@ -3,7 +3,7 @@ module "sg" {
   version = "~> 5.0"
 
   name        = "${var.name}-instance"
-  description = "Hermes instance - no ingress, restricted egress"
+  description = "Hermes instance - optional HTTP/S ingress, restricted egress"
   vpc_id      = local.vpc_id
   tags        = local.common_tags
 
@@ -26,6 +26,17 @@ resource "aws_vpc_security_group_egress_rule" "egress" {
   description       = each.value.description
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = each.value.ip_protocol
+  from_port         = each.value.from_port
+  to_port           = each.value.to_port
+}
+
+resource "aws_vpc_security_group_ingress_rule" "public_dashboard" {
+  for_each = local.sg_ingress_rules
+
+  security_group_id = module.sg.security_group_id
+  description       = each.value.description
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "tcp"
   from_port         = each.value.from_port
   to_port           = each.value.to_port
 }

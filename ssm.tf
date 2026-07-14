@@ -68,3 +68,45 @@ resource "aws_ssm_parameter" "api_server_key" {
   value       = random_password.api_server_key[0].result
   tags        = local.common_tags
 }
+
+################################################################################
+# Public Dashboard Authentication
+################################################################################
+
+resource "aws_ssm_parameter" "dashboard_username" {
+  count = var.public_dashboard_enabled ? 1 : 0
+
+  name        = local.ssm_dashboard_username_path
+  description = "Username for the built-in Hermes dashboard Basic Auth gate."
+  type        = "String"
+  value       = var.public_dashboard_basic_auth_username
+  tags        = local.common_tags
+}
+
+resource "aws_ssm_parameter" "dashboard_hermes_hash" {
+  count = var.public_dashboard_enabled ? 1 : 0
+
+  name        = local.ssm_dashboard_hermes_hash_path
+  description = "Hermes scrypt dashboard password hash. Replace with scripts/bootstrap-public-dashboard-auth.sh after apply."
+  type        = "SecureString"
+  value       = local.dashboard_hermes_hash_sentinel
+  tags        = local.common_tags
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+resource "aws_ssm_parameter" "dashboard_session_secret" {
+  count = var.public_dashboard_enabled ? 1 : 0
+
+  name        = local.ssm_dashboard_session_secret_path
+  description = "Hermes dashboard session signing secret. Replace with scripts/bootstrap-public-dashboard-auth.sh after apply."
+  type        = "SecureString"
+  value       = local.dashboard_session_secret_sentinel
+  tags        = local.common_tags
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}

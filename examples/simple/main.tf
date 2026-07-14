@@ -1,3 +1,14 @@
+terraform {
+  required_version = "~> 1.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
+  }
+}
+
 provider "aws" {
   region = "us-east-1"
 }
@@ -5,7 +16,7 @@ provider "aws" {
 module "hermes" {
   source = "../../"
 
-  hermes_version = "v2026.4.30"
+  hermes_version = "v2026.7.7.2"
 
   # Bedrock defaults: us-east-1, us.anthropic.claude-haiku-4-5-20251001-v1:0
   # Network defaults: auto-discovers default VPC/subnet

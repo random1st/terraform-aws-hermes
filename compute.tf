@@ -25,6 +25,14 @@ resource "aws_launch_template" "this" {
     http_put_response_hop_limit = 1
   }
 
+  dynamic "credit_specification" {
+    for_each = can(regex("^t[0-9]", var.instance_type)) ? [1] : []
+
+    content {
+      cpu_credits = "standard"
+    }
+  }
+
   block_device_mappings {
     device_name = "/dev/xvda"
 
@@ -89,6 +97,8 @@ resource "aws_autoscaling_group" "this" {
       propagate_at_launch = true
     }
   }
+
+  depends_on = [aws_route53_record.public_dashboard]
 }
 
 ################################################################################
